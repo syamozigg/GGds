@@ -55,7 +55,7 @@ def generate_fortune(text: str) -> str:
     )
 
     try:
-        response = openai.ChatCompletion.create(
+        completion = openai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a poetic spiritual fortune teller."},
@@ -63,7 +63,7 @@ def generate_fortune(text: str) -> str:
             ],
             max_tokens=300,
         )
-        fortune = response.choices[0].message.content.strip()
+        fortune = completion.choices[0].message.content.strip()
         return fortune
     except Exception as e:
         st.error(f"💥 占い生成に失敗しました。\n\nError: {e}")
