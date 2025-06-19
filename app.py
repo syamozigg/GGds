@@ -34,7 +34,6 @@ def get_apod(today: datetime.date) -> Tuple[str, str, str]:
 
     except requests.exceptions.HTTPError as e:
         if res.status_code == 404:
-            # 1日前にずらして再試行（APODは1995-06-16開始）
             yesterday = today - datetime.timedelta(days=1)
             if yesterday < datetime.date(1995, 6, 16):
                 st.error("NASA APODのデータが見つかりません。")
@@ -47,7 +46,7 @@ def get_apod(today: datetime.date) -> Tuple[str, str, str]:
         st.error(f"💥 NASA データ取得に失敗しました。\n\nError: {e}")
         raise
 
-# 🔮 GPTによる占い生成（トークン切れ時は自動代替）
+# 🔮 GPTによる占い生成
 def generate_fortune(text: str) -> str:
     prompt = (
         "あなたは詩的でスピリチュアルな占い師です。"
@@ -55,7 +54,6 @@ def generate_fortune(text: str) -> str:
         "日本語で300文字以内の今日の運勢を作成してください。\n\n"
         f"【解説】\n{text}"
     )
-
     try:
         completion = openai.chat.completions.create(
             model="gpt-4o-mini",
@@ -65,8 +63,7 @@ def generate_fortune(text: str) -> str:
             ],
             max_tokens=300,
         )
-        fortune = completion.choices[0].message.content.strip()
-        return fortune
+        return completion.choices[0].message.content.strip()
 
     except openai.RateLimitError:
         fallback = "宇宙は静かにあなたを見守っています。今日は焦らず、自分のペースで進みましょう。"
@@ -78,7 +75,24 @@ def generate_fortune(text: str) -> str:
         st.error(f"💥 占い生成に失敗しました。\n\nError: {e}\n代わりに自動メッセージを表示します。")
         return fallback
 
-# 🎨 Streamlit UI
+# 🌍 NASA解説を日本語に翻訳
+def translate_to_japanese(text: str) -> str:
+    try:
+        completion = openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a professional English to Japanese translator."},
+                {"role": "user", "content": f"以下の天文学に関する解説文を自然で正確な日本語に翻訳してください：\n\n{text}"},
+            ],
+            max_tokens=500,
+        )
+        return completion.choices[0].message.content.strip()
+
+    except Exception as e:
+        st.warning(f"⚠️ NASA解説の翻訳に失敗しました。英語のまま表示します。\nError: {e}")
+        return text
+
+# 🎨 UI構築
 st.title("✨ 宇宙とあなたの運命 ✨")
 st.caption("NASA の宇宙写真と GPT が紡ぐ、あなたへの星からのメッセージ")
 
@@ -89,7 +103,9 @@ if st.button("🔭 今日の宇宙画像を見る"):
     today = datetime.date.today()
     with st.spinner("宇宙からの光を受信中…"):
         media_url, title, explanation = get_apod(today)
+        explanation_jp = translate_to_japanese(explanation)
         fortune = generate_fortune(explanation)
+
         st.session_state["media_url"] = media_url
         st.session_state["title"] = title
         st.session_state["fortune"] = fortune
@@ -97,17 +113,21 @@ if st.button("🔭 今日の宇宙画像を見る"):
             "video" if media_url.lower().endswith((".mp4", ".mov", ".avi")) else "image"
         )
         st.session_state["explanation"] = explanation
+        st.session_state["explanation_jp"] = explanation_jp
 
 if st.session_state.get("fortune"):
     if st.session_state["media_type"] == "image":
-        st.image(st.session_state["media_url"], use_column_width=True)
+        st.image(st.session_state["media_url"], use_container_width=True)
     else:
         st.video(st.session_state["media_url"])
 
     st.subheader(st.session_state["title"])
     st.markdown(f"**{st.session_state['fortune']}**")
 
-    with st.expander("🛰️ NASA 解説（原文）"):
+    with st.expander("🛰️ NASA 解説（日本語）"):
+        st.write(st.session_state["explanation_jp"])
+
+    with st.expander("🗽 NASA 解説（原文 / 英語）"):
         st.write(st.session_state["explanation"])
 else:
     st.info("上のボタンを押して、今日の宇宙からのメッセージを受け取りましょう！")
