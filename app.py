@@ -1,30 +1,20 @@
-# app.py
-# 「宇宙とあなたの運命」
-#
-# ──────────────────────────────────────────
-# 必要ライブラリ:
-#   pip install streamlit requests openai python-dotenv
-#   （streamlit run app.py で起動）
-# ──────────────────────────────────────────
-
 import datetime
 import requests
 import streamlit as st
 import openai
 from typing import Tuple
 
-# ──────────────  0. 共通設定  ──────────────
 st.set_page_config(page_title="宇宙とあなたの運命", page_icon="✨", layout="centered")
+
+# APIキー読み込みチェック
+if "OPENAI_API_KEY" not in st.secrets or "NASA_API_KEY" not in st.secrets:
+    st.error("🔑 APIキーが設定されていません。`.streamlit/secrets.toml` に `OPENAI_API_KEY` と `NASA_API_KEY` を追加してください。")
+    st.stop()
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 NASA_API_KEY = st.secrets["NASA_API_KEY"]
 
-# ──────────────  1. ヘルパー関数  ──────────────
 def get_apod(today: datetime.date) -> Tuple[str, str, str]:
-    """
-    NASA APOD (Astronomy Picture of the Day) から
-    画像／タイトル／説明文を取得して返す
-    """
     url = "https://api.nasa.gov/planetary/apod"
     params = {"api_key": NASA_API_KEY, "date": today.isoformat()}
     try:
@@ -33,34 +23,40 @@ def get_apod(today: datetime.date) -> Tuple[str, str, str]:
         data = res.json()
 
         if data.get("media_type") not in {"image", "video"}:
-            raise ValueError("メディアタイプが image/video ではありません")
+            raise ValueError("メディアタイプが image または video ではありません。")
 
         media_url = data["url"]
         title = data.get("title", "No Title")
         explanation = data.get("explanation", "")
 
         return media_url, title, explanation
+
+    except requests.exceptions.HTTPError as e:
+        if res.status_code == 404:
+            # 404なら日付を1日前にずらしてリトライ（APODは1995-06-16開始）
+            yesterday = today - datetime.timedelta(days=1)
+            if yesterday < datetime.date(1995, 6, 16):
+                st.error("NASA APODのデータが見つかりません。")
+                raise
+            return get_apod(yesterday)
+        else:
+            st.error(f"💥 NASA データ取得に失敗しました。\n\nError: {e}")
+            raise
     except Exception as e:
-        # 英語エラーを併記して表示
         st.error(f"💥 NASA データ取得に失敗しました。\n\nError: {e}")
         raise
 
-
 def generate_fortune(text: str) -> str:
-    """
-    APOD の説明文をもとに GPT で
-    詩的・スピリチュアルな今日の運勢 (300 文字以内) を生成
-    """
     prompt = (
         "あなたは詩的でスピリチュアルな占い師です。"
         "以下の宇宙画像の解説をインスピレーションに、"
-        "日本語で 300 文字以内の今日の運勢を作成してください。\n\n"
+        "日本語で300文字以内の今日の運勢を作成してください。\n\n"
         f"【解説】\n{text}"
     )
 
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # 任意の GPT モデル
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a poetic spiritual fortune teller."},
                 {"role": "user", "content": prompt},
@@ -73,8 +69,6 @@ def generate_fortune(text: str) -> str:
         st.error(f"💥 占い生成に失敗しました。\n\nError: {e}")
         raise
 
-
-# ──────────────  2. UI  ──────────────
 st.title("✨ 宇宙とあなたの運命 ✨")
 st.caption("NASA の宇宙写真と GPT が紡ぐ、あなたへの星からのメッセージ")
 
@@ -86,7 +80,6 @@ if st.button("🔭 今日の宇宙画像を見る"):
     with st.spinner("宇宙からの光を受信中…"):
         media_url, title, explanation = get_apod(today)
         fortune = generate_fortune(explanation)
-        # 結果をセッションに保存（リロード対策）
         st.session_state["media_url"] = media_url
         st.session_state["title"] = title
         st.session_state["fortune"] = fortune
@@ -94,7 +87,6 @@ if st.button("🔭 今日の宇宙画像を見る"):
             "video" if media_url.lower().endswith((".mp4", ".mov", ".avi")) else "image"
         )
 
-# ──────────────  3. 出力表示  ──────────────
 if st.session_state.get("fortune"):
     if st.session_state["media_type"] == "image":
         st.image(st.session_state["media_url"], use_column_width=True)
